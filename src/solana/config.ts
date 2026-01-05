@@ -107,8 +107,8 @@ export function validateConfig(config: BotConfig): string[] {
     if (!config.rpcEndpoint) {
         errors.push("SOLANA_RPC_ENDPOINT is required")
     }
-    if (config.initialCapital <= 0) {
-        errors.push("INITIAL_CAPITAL must be positive")
+    if (config.initialCapital < 0) {
+        errors.push("INITIAL_CAPITAL must be non-negative")
     }
     if (config.slippageBps < 0 || config.slippageBps > 1000) {
         errors.push("SLIPPAGE_BPS must be between 0 and 1000")
@@ -136,4 +136,84 @@ export function validateConfig(config: BotConfig): string[] {
     }
 
     return errors
+}
+
+// Self-funding bot configuration
+export interface SelfFundingBotConfig extends BotConfig {
+    // Flash loan settings
+    enableFlashLoans: boolean
+    minFlashLoanProfit: number
+    maxFlashLoanSize: number
+    flashLoanIntervalMs: number
+
+    // Bootstrap mode
+    bootstrapMode: boolean
+    targetBootstrapCapital: number
+
+    // Profit management
+    profitReinvestPercent: number
+    profitReservePercent: number
+
+    // Backtest
+    runBacktestOnStart: boolean
+    backtestDays: number
+}
+
+export const DEFAULT_SELF_FUNDING_CONFIG: SelfFundingBotConfig = {
+    ...DEFAULT_CONFIG,
+    initialCapital: 0, // Start with $0!
+
+    // Flash loan settings
+    enableFlashLoans: true,
+    minFlashLoanProfit: 0.1, // 0.1% minimum profit
+    maxFlashLoanSize: 5000,  // $5k max per flash loan
+    flashLoanIntervalMs: 10000, // Scan every 10 seconds
+
+    // Bootstrap mode
+    bootstrapMode: true,
+    targetBootstrapCapital: 100, // Target $100 before regular trading
+
+    // Profit management
+    profitReinvestPercent: 80,
+    profitReservePercent: 20,
+
+    // Backtest
+    runBacktestOnStart: true,
+    backtestDays: 30,
+}
+
+export function loadSelfFundingConfigFromEnv(): SelfFundingBotConfig {
+    const baseConfig = loadConfigFromEnv()
+    const config: SelfFundingBotConfig = {
+        ...DEFAULT_SELF_FUNDING_CONFIG,
+        ...baseConfig,
+    }
+
+    // Override with self-funding specific env vars
+    if (process.env.ENABLE_FLASH_LOANS) {
+        config.enableFlashLoans = process.env.ENABLE_FLASH_LOANS === "true"
+    }
+    if (process.env.MIN_FLASH_LOAN_PROFIT) {
+        config.minFlashLoanProfit = parseFloat(process.env.MIN_FLASH_LOAN_PROFIT)
+    }
+    if (process.env.MAX_FLASH_LOAN_SIZE) {
+        config.maxFlashLoanSize = parseFloat(process.env.MAX_FLASH_LOAN_SIZE)
+    }
+    if (process.env.FLASH_LOAN_INTERVAL_MS) {
+        config.flashLoanIntervalMs = parseInt(process.env.FLASH_LOAN_INTERVAL_MS)
+    }
+    if (process.env.BOOTSTRAP_MODE) {
+        config.bootstrapMode = process.env.BOOTSTRAP_MODE === "true"
+    }
+    if (process.env.TARGET_BOOTSTRAP_CAPITAL) {
+        config.targetBootstrapCapital = parseFloat(process.env.TARGET_BOOTSTRAP_CAPITAL)
+    }
+    if (process.env.RUN_BACKTEST) {
+        config.runBacktestOnStart = process.env.RUN_BACKTEST === "true"
+    }
+    if (process.env.BACKTEST_DAYS) {
+        config.backtestDays = parseInt(process.env.BACKTEST_DAYS)
+    }
+
+    return config
 }

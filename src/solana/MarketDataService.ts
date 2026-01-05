@@ -209,6 +209,141 @@ export class MarketDataService {
         return rsi
     }
 
+    // MACD (Moving Average Convergence Divergence)
+    calculateMACD(mint: PublicKey): { macd: Big; signal: Big; histogram: Big } | null {
+        const ema12 = this.calculateEMA(mint, 12)
+        const ema26 = this.calculateEMA(mint, 26)
+
+        if (!ema12 || !ema26) return null
+
+        const macd = ema12.sub(ema26)
+
+        // Signal line (9-period EMA of MACD) - simplified calculation
+        const history = this.priceHistories.get(mint.toBase58())
+        if (!history || history.prices.length < 35) return null
+
+        // Calculate MACD values for signal line
+        const macdValues: Big[] = []
+        for (let i = 26; i < history.prices.length; i++) {
+            const slice = history.prices.slice(0, i + 1)
+            const e12 = this.calculateEMAFromPrices(slice, 12)
+            const e26 = this.calculateEMAFromPrices(slice, 26)
+            if (e12 && e26) macdValues.push(e12.sub(e26))
+        }
+
+        if (macdValues.length < 9) return null
+
+        const signalMultiplier = Big(2).div(10)
+        let signal = macdValues.slice(0, 9).reduce((a, b) => a.add(b), Big(0)).div(9)
+        for (let i = 9; i < macdValues.length; i++) {
+            signal = macdValues[i].mul(signalMultiplier).add(signal.mul(Big(1).sub(signalMultiplier)))
+        }
+
+        const histogram = macd.sub(signal)
+
+        return { macd, signal, histogram }
+    }
+
+    private calculateEMAFromPrices(prices: Big[], periods: number): Big | null {
+        if (prices.length < periods) return null
+
+        const multiplier = Big(2).div(periods + 1)
+        let ema = prices.slice(0, periods).reduce((a, b) => a.add(b), Big(0)).div(periods)
+
+        for (let i = periods; i < prices.length; i++) {
+            ema = prices[i].mul(multiplier).add(ema.mul(Big(1).sub(multiplier)))
+        }
+
+        return ema
+    }
+
+    // Bollinger Bands
+    calculateBollingerBands(mint: PublicKey, periods: number = 20, stdDev: number = 2): {
+        upper: Big
+        middle: Big
+        lower: Big
+        percentB: Big
+    } | null {
+        const history = this.priceHistories.get(mint.toBase58())
+        if (!history || history.prices.length < periods) return null
+
+        const recentPrices = history.prices.slice(-periods)
+        const middle = recentPrices.reduce((a, b) => a.add(b), Big(0)).div(periods)
+
+        const squaredDiffs = recentPrices.map(p => p.sub(middle).pow(2))
+        const variance = squaredDiffs.reduce((a, b) => a.add(b), Big(0)).div(periods)
+        const std = variance.sqrt()
+
+        const upper = middle.add(std.mul(stdDev))
+        const lower = middle.sub(std.mul(stdDev))
+
+        const currentPrice = recentPrices[recentPrices.length - 1]
+        const percentB = upper.sub(lower).eq(0)
+            ? Big(0.5)
+            : currentPrice.sub(lower).div(upper.sub(lower))
+
+        return { upper, middle, lower, percentB }
+    }
+
+    // Momentum indicator
+    calculateMomentum(mint: PublicKey, periods: number = 10): Big | null {
+        const history = this.priceHistories.get(mint.toBase58())
+        if (!history || history.prices.length < periods + 1) return null
+
+        const currentPrice = history.prices[history.prices.length - 1]
+        const pastPrice = history.prices[history.prices.length - periods - 1]
+
+        return currentPrice.sub(pastPrice).div(pastPrice).mul(100)
+    }
+
+    // Stochastic Oscillator
+    calculateStochastic(mint: PublicKey, periods: number = 14): { k: Big; d: Big } | null {
+        const history = this.priceHistories.get(mint.toBase58())
+        if (!history || history.prices.length < periods + 3) return null
+
+        const recentPrices = history.prices.slice(-periods)
+        const currentPrice = recentPrices[recentPrices.length - 1]
+
+        let highest = recentPrices[0]
+        let lowest = recentPrices[0]
+        for (const price of recentPrices) {
+            if (price.gt(highest)) highest = price
+            if (price.lt(lowest)) lowest = price
+        }
+
+        const range = highest.sub(lowest)
+        const k = range.eq(0) ? Big(50) : currentPrice.sub(lowest).div(range).mul(100)
+
+        // %D is 3-period SMA of %K (simplified - just return K as D for now)
+        const d = k
+
+        return { k, d }
+    }
+
+    // Average True Range (ATR) for volatility
+    calculateATR(mint: PublicKey, periods: number = 14): Big | null {
+        const history = this.priceHistories.get(mint.toBase58())
+        if (!history || history.prices.length < periods + 1) return null
+
+        const prices = history.prices.slice(-(periods + 1))
+        const trueRanges: Big[] = []
+
+        for (let i = 1; i < prices.length; i++) {
+            const high = prices[i] // Simplified - using close as proxy
+            const low = prices[i].mul(0.995) // Assume 0.5% daily range
+            const prevClose = prices[i - 1]
+
+            const tr1 = high.sub(low)
+            const tr2 = high.sub(prevClose).abs()
+            const tr3 = low.sub(prevClose).abs()
+
+            const tr = tr1.gt(tr2) ? (tr1.gt(tr3) ? tr1 : tr3) : (tr2.gt(tr3) ? tr2 : tr3)
+            trueRanges.push(tr)
+        }
+
+        return trueRanges.reduce((a, b) => a.add(b), Big(0)).div(trueRanges.length)
+    }
+
     calculateVolatility(mint: PublicKey, periods: number = 20): Big | null {
         const history = this.priceHistories.get(mint.toBase58())
         if (!history || history.prices.length < periods) return null
@@ -244,46 +379,103 @@ export class MarketDataService {
         const sma20 = this.calculateSMA(token.mint, 20)
         const rsi = this.calculateRSI(token.mint, 14)
         const volatility = this.calculateVolatility(token.mint, 20)
+        const macd = this.calculateMACD(token.mint)
+        const bollinger = this.calculateBollingerBands(token.mint, 20)
+        const stochastic = this.calculateStochastic(token.mint)
+        const momentum = this.calculateMomentum(token.mint, 10)
 
         let signal: "BUY" | "SELL" | "HOLD" = "HOLD"
         let confidence = 0
         let reason = ""
+        let signals: { type: string; weight: number }[] = []
 
-        // High probability conditions for scalping
+        // Multi-indicator analysis for high probability
         if (sma5 && sma20 && rsi && volatility) {
             const trendStrength = sma5.sub(sma20).div(sma20).mul(100)
 
-            // Mean reversion strategy for oversold/overbought conditions
-            if (rsi.lt(30) && trendStrength.gt(-2)) {
-                signal = "BUY"
-                confidence = Math.min(0.8, (30 - Number(rsi.toString())) / 30)
-                reason = `RSI oversold at ${rsi.toFixed(1)}, potential bounce`
-            } else if (rsi.gt(70) && trendStrength.lt(2)) {
-                signal = "SELL"
-                confidence = Math.min(0.8, (Number(rsi.toString()) - 70) / 30)
-                reason = `RSI overbought at ${rsi.toFixed(1)}, potential pullback`
+            // RSI Signal (weight: 0.25)
+            if (rsi.lt(30)) {
+                signals.push({ type: "BUY", weight: 0.25 * (30 - Number(rsi.toString())) / 30 })
+            } else if (rsi.gt(70)) {
+                signals.push({ type: "SELL", weight: 0.25 * (Number(rsi.toString()) - 70) / 30 })
             }
-            // Momentum breakout with low volatility
-            else if (volatility.lt(2) && trendStrength.gt(0.5)) {
+
+            // MACD Signal (weight: 0.2)
+            if (macd) {
+                if (macd.histogram.gt(0) && macd.macd.gt(0)) {
+                    signals.push({ type: "BUY", weight: 0.2 })
+                } else if (macd.histogram.lt(0) && macd.macd.lt(0)) {
+                    signals.push({ type: "SELL", weight: 0.2 })
+                }
+            }
+
+            // Bollinger Bands Signal (weight: 0.2)
+            if (bollinger) {
+                if (bollinger.percentB.lt(0.1)) { // Near lower band
+                    signals.push({ type: "BUY", weight: 0.2 * (1 - Number(bollinger.percentB.toString()) * 2) })
+                } else if (bollinger.percentB.gt(0.9)) { // Near upper band
+                    signals.push({ type: "SELL", weight: 0.2 * (Number(bollinger.percentB.toString()) - 0.5) * 2 })
+                }
+            }
+
+            // Stochastic Signal (weight: 0.15)
+            if (stochastic) {
+                if (stochastic.k.lt(20)) {
+                    signals.push({ type: "BUY", weight: 0.15 })
+                } else if (stochastic.k.gt(80)) {
+                    signals.push({ type: "SELL", weight: 0.15 })
+                }
+            }
+
+            // Momentum Signal (weight: 0.1)
+            if (momentum) {
+                if (momentum.gt(1) && trendStrength.gt(0)) {
+                    signals.push({ type: "BUY", weight: 0.1 })
+                } else if (momentum.lt(-1) && trendStrength.lt(0)) {
+                    signals.push({ type: "SELL", weight: 0.1 })
+                }
+            }
+
+            // Trend confirmation (weight: 0.1)
+            if (volatility.lt(3)) { // Low volatility = clearer signals
+                if (trendStrength.gt(0.5)) {
+                    signals.push({ type: "BUY", weight: 0.1 })
+                } else if (trendStrength.lt(-0.5)) {
+                    signals.push({ type: "SELL", weight: 0.1 })
+                }
+            }
+
+            // Calculate net signal
+            let buyWeight = signals.filter(s => s.type === "BUY").reduce((a, s) => a + s.weight, 0)
+            let sellWeight = signals.filter(s => s.type === "SELL").reduce((a, s) => a + s.weight, 0)
+
+            if (buyWeight > sellWeight && buyWeight > 0.5) {
                 signal = "BUY"
-                confidence = 0.6
-                reason = `Low volatility breakout, trend strength ${trendStrength.toFixed(2)}%`
-            } else if (volatility.lt(2) && trendStrength.lt(-0.5)) {
+                confidence = Math.min(0.9, buyWeight)
+                reason = `Multi-indicator BUY: RSI=${rsi.toFixed(0)}, MACD=${macd?.histogram.gt(0) ? "+" : "-"}, BB%=${bollinger?.percentB.toFixed(2) || "N/A"}`
+            } else if (sellWeight > buyWeight && sellWeight > 0.5) {
                 signal = "SELL"
-                confidence = 0.6
-                reason = `Low volatility breakdown, trend strength ${trendStrength.toFixed(2)}%`
+                confidence = Math.min(0.9, sellWeight)
+                reason = `Multi-indicator SELL: RSI=${rsi.toFixed(0)}, MACD=${macd?.histogram.lt(0) ? "-" : "+"}, BB%=${bollinger?.percentB.toFixed(2) || "N/A"}`
             }
         }
 
         // Only high probability trades (confidence > 0.6)
         if (confidence < 0.6) {
             signal = "HOLD"
-            reason = "Conditions not favorable for high-probability trade"
+            reason = "Insufficient signal strength for high-probability trade"
         }
 
-        // Calculate target and stop loss for scalping (tight ranges)
-        const targetMultiplier = signal === "BUY" ? 1.005 : 0.995 // 0.5% target
-        const stopMultiplier = signal === "BUY" ? 0.997 : 1.003 // 0.3% stop loss
+        // Calculate target and stop loss based on volatility
+        const atr = this.calculateATR(token.mint, 14)
+        const atrMultiplier = atr ? Number(atr.div(currentPrice).mul(100).toString()) : 0.5
+
+        const targetMultiplier = signal === "BUY"
+            ? 1 + Math.max(0.5, atrMultiplier * 1.5) / 100
+            : 1 - Math.max(0.5, atrMultiplier * 1.5) / 100
+        const stopMultiplier = signal === "BUY"
+            ? 1 - Math.max(0.3, atrMultiplier) / 100
+            : 1 + Math.max(0.3, atrMultiplier) / 100
 
         return {
             token,
