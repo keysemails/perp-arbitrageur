@@ -1,4 +1,10 @@
 import "reflect-metadata"
+import * as dotenv from "dotenv"
+import * as path from "path"
+
+// Load .env.solana file
+dotenv.config({ path: path.resolve(process.cwd(), ".env.solana") })
+
 import { configure } from "log4js"
 import { Container } from "typedi"
 import { Log } from "../Log"
