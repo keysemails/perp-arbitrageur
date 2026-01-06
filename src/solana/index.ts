@@ -1,6 +1,23 @@
 import "reflect-metadata"
+import { configure } from "log4js"
 import { Container } from "typedi"
 import { Log } from "../Log"
+
+// Configure log4js to output to console
+configure({
+    appenders: {
+        console: {
+            type: "console",
+            layout: {
+                type: "pattern",
+                pattern: "%d{ISO8601} [%p] %c - %m"
+            }
+        }
+    },
+    categories: {
+        default: { appenders: ["console"], level: "debug" }
+    }
+})
 import { SolanaService } from "./SolanaService"
 import { JupiterService } from "./JupiterService"
 import { MarketDataService } from "./MarketDataService"
