@@ -71,6 +71,7 @@ typings/
 # dotenv environment variables file
 .env
 .env.test
+.env.solana
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
