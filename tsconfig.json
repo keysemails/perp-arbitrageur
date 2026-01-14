@@ -14,8 +14,7 @@
         "noImplicitAny": true,
         "noImplicitReturns": true,
         "resolveJsonModule": true,
-        "esModuleInterop": true,
-        "skipLibCheck": true
+        "esModuleInterop": true
     },
     "include": ["./src", "./types"]
 }

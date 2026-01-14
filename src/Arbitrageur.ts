@@ -120,14 +120,14 @@ export class Arbitrageur {
             amms.map(async amm => {
                 try {
                     return await this.adjustMarginAmm(amm)
-                } catch (e: any) {
+                } catch (e) {
                     this.log.jinfo({
                         event: "AdjustMarginAmmFailed",
                         params: {
                             amm: amm.address,
-                            reason: e?.toString?.() ?? String(e),
-                            stack: e?.stack,
-                            response: e?.response,
+                            reason: e.toString(),
+                            stack: e.stack,
+                            response: e.response,
                         },
                     })
                     return
@@ -184,12 +184,12 @@ export class Arbitrageur {
             amms.map(async amm => {
                 try {
                     return await this.arbitrageAmm(amm, systemMetadata)
-                } catch (e: any) {
+                } catch (e) {
                     this.log.jerror({
                         event: "ArbitrageAmmFailed",
                         params: {
-                            reason: e?.toString?.() ?? String(e),
-                            stackTrace: e?.stack,
+                            reason: e.toString(),
+                            stackTrace: e.stack,
                         },
                     })
                     return
@@ -315,14 +315,14 @@ export class Arbitrageur {
                             gasPrice: await this.ethService.getSafeGasPrice(),
                         })
                         this.nextNonce++
-                    } catch (e: any) {
+                    } catch (e) {
                         await this.log.jwarn({
                             event: "RemoveMarginSentTxFailed",
                             params: {
                                 ammPair,
                                 amm: amm.address,
                                 marginToBeRemoved: +marginToBeRemoved,
-                                reason: e?.toString?.() ?? String(e),
+                                reason: e.toString(),
                             },
                         })
                     } finally {
